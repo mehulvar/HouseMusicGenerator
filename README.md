@@ -10,7 +10,7 @@
 |---|---|---|
 | 1. Parse prompt → `{artist, track}` | `housegen/parse.py` (regex, then LLM via Groq, `housegen/llm.py`) | empty reference |
 | 2. Resolve on Spotify (client credentials) | `housegen/spotify.py` | skipped |
-| 3. Style profile (GetSongBPM + LLM description) | `housegen/profile.py` | house defaults: 122–126 BPM, A minor |
+| 3. Style profile ([ReccoBeats](https://reccobeats.com) audio features + LLM description) | `housegen/profile.py` | house defaults: 122–126 BPM, A minor |
 | 4. Style spec JSON (never contains the artist name) | `housegen/spec.py` | — |
 | 5. Lyrics from an RSS headline / poem / `--theme` | `housegen/lyrics.py` | built-in lyrics |
 | 6C. Local ACE-Step 1.5 server (free, vocals) | `housegen/audio_acestep.py` | path A |

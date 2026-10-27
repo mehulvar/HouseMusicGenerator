@@ -1,11 +1,10 @@
-"""Step 3: build a style profile from GetSongBPM and/or an LLM description, with house defaults."""
-import os
+"""Step 3: build a style profile from ReccoBeats audio features and/or an LLM description, with house defaults."""
 import random
-import re
 
 import requests
 
 from . import llm
+from .spec import NOTE_NAMES
 
 DEFAULTS = {
     "bpm": None,  # filled with 122-126 at build time
@@ -18,42 +17,30 @@ DEFAULTS = {
 }
 
 
-def _getsongbpm(artist: str, track: str) -> dict | None:
-    key = os.getenv("GETSONGBPM_API_KEY")
-    if not (key and track):
+def _reccobeats(spotify_id: str | None) -> dict | None:
+    """Spotify-style audio features by Spotify track ID. Free, no key."""
+    if not spotify_id:
         return None
     try:
-        lookup = f"song:{track}" + (f" artist:{artist}" if artist else "")
         r = requests.get(
-            "https://api.getsong.co/search/",
-            params={"api_key": key, "type": "both", "lookup": lookup},
-            timeout=10,
+            "https://api.reccobeats.com/v1/audio-features", params={"ids": spotify_id}, timeout=10
         )
         r.raise_for_status()
-        results = r.json().get("search")
-        if not isinstance(results, list) or not results:
+        content = r.json().get("content") or []
+        if not content:
             return None
-        hit = results[0]
+        f = content[0]
         out = {}
-        if hit.get("tempo"):
-            out["bpm"] = round(float(hit["tempo"]))
-        if hit.get("key_of"):
-            out["key"] = _normalize_key(hit["key_of"])
+        if f.get("tempo"):
+            out["bpm"] = round(float(f["tempo"]))
+        if f.get("key") is not None and f["key"] >= 0:  # -1 means no key detected
+            out["key"] = f"{NOTE_NAMES[f['key']]} {'major' if f.get('mode') == 1 else 'minor'}"
+        if f.get("energy") is not None:
+            out["energy"] = round(float(f["energy"]), 2)
         return out or None
     except Exception as e:
-        print(f"  [getsongbpm] failed: {e}")
+        print(f"  [reccobeats] failed: {e}")
         return None
-
-
-def _normalize_key(k: str) -> str:
-    """'Am' -> 'A minor', 'F#' -> 'F# major', 'C minor' stays."""
-    k = k.strip()
-    if re.search(r"major|minor", k, re.I):
-        return k
-    m = re.match(r"^([A-G][#b♯♭]?)(m|min)?$", k)
-    if not m:
-        return k
-    return f"{m[1].replace('♯', '#').replace('♭', 'b')} {'minor' if m[2] else 'major'}"
 
 
 def _llm_describe(artist: str, track: str, meta: dict | None) -> dict | None:
@@ -77,11 +64,11 @@ def build_profile(artist: str, track: str, meta: dict | None) -> dict:
         profile.update({k: v for k, v in described.items() if v not in (None, "", [])})
         sources.append("llm")
 
-    # Measured BPM/key beat the LLM's guess.
-    measured = _getsongbpm(artist, track)
+    # Measured BPM/key/energy beat the LLM's guess.
+    measured = _reccobeats((meta or {}).get("id"))
     if measured:
         profile.update(measured)
-        sources.append("getsongbpm")
+        sources.append("reccobeats")
 
     if not profile.get("bpm"):
         profile["bpm"] = random.randint(122, 126)
