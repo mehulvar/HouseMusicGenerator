@@ -2,6 +2,8 @@
 
 `python gen.py "make a song like calvin harris's Summer"` → an audio file + a JSON spec explaining why it sounds the way it does.
 
+[GetSongBPM](https://getsongbpm.com)
+
 ## Pipeline
 
 | Step | Module | Fallback when a key is missing |
