@@ -17,21 +17,34 @@ def slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:40] or "song"
 
 
-def run(prompt: str, path: str | None = None, theme: str | None = None, out_dir: str = "output") -> dict:
-    print("1. parse");    ref = parse.parse_prompt(prompt);  print(f"   {ref}")
-    print("2. spotify");  meta = spotify.resolve(ref["artist"], ref["track"]); print(f"   {meta}")
+def run(
+    prompt: str,
+    path: str | None = None,
+    theme: str | None = None,
+    out_dir: str = "output",
+    on_step=None,
+) -> dict:
+    """on_step(name) is called as each pipeline stage starts (used by the API for progress)."""
+
+    def step(n: int, name: str):
+        print(f"{n}. {name}")
+        if on_step:
+            on_step(name)
+
+    step(1, "parse");    ref = parse.parse_prompt(prompt);  print(f"   {ref}")
+    step(2, "spotify");  meta = spotify.resolve(ref["artist"], ref["track"]); print(f"   {meta}")
     artist = (meta or {}).get("artist") or ref["artist"]
     track = (meta or {}).get("track") or ref["track"]
 
-    print("3. profile")
+    step(3, "profile")
     prof = profile.build_profile(artist, track, meta)
     print(f"   bpm={prof['bpm']} key={prof['key']} sources={prof['sources']}")
 
-    print("4. spec")
+    step(4, "spec")
     banned = [n for n in {artist, ref["artist"], *artist.split(", ")} if n]
     style = spec.build_spec(prof, banned)
 
-    print("5. lyrics")
+    step(5, "lyrics")
     words = lyrics.write_lyrics(style, lyrics.fetch_inspiration(theme))
     print(f"   \"{words['title']}\" / hook: {words['hook'][0]}")
 
@@ -41,7 +54,7 @@ def run(prompt: str, path: str | None = None, theme: str | None = None, out_dir:
     os.makedirs(out_dir, exist_ok=True)
     base = os.path.join(out_dir, f"{datetime.now():%Y%m%d-%H%M%S}-{slug(words['title'])}")
 
-    print(f"6. audio (path {path})")
+    step(6, f"audio (path {path})")
     if path == "C":
         print("   (ACE-Step can take a few minutes)")
         audio = audio_acestep.render(style, words, base + ".mp3")
@@ -58,7 +71,7 @@ def run(prompt: str, path: str | None = None, theme: str | None = None, out_dir:
         "spec": style,
         "lyrics": words,
         "audio_path": path,
-        "files": {"mp3": audio, **({"midi": base + ".mid"} if path == "B" else {})},
+        "files": {"audio": audio, "json": base + ".json", **({"midi": base + ".mid"} if path == "B" else {})},
     }
     with open(base + ".json", "w") as f:
         json.dump(result, f, indent=2)

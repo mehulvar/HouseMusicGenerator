@@ -28,6 +28,34 @@ cp .env.example .env   # fill in whichever keys you have
 Outputs go to `output/`: `.mp3` (or `.wav`), `.mid` (path B), and `.json` (reference, profile, spec, lyrics).
 mp3 encoding needs a working `ffmpeg` (`brew install ffmpeg`).
 
+## HTTP API
+
+```bash
+.venv/bin/uvicorn app:app --port 8000      # docs at http://localhost:8000/docs
+```
+
+Generation takes a minute or more, so it's a job API:
+
+```bash
+curl -X POST localhost:8000/songs -H 'content-type: application/json' \
+  -d '{"prompt": "make a song like calvin harris'"'"'s Summer", "theme": "optional lyric idea"}'
+# -> {"id": "a1e66ac2bf99", "status": "queued", "url": "/songs/a1e66ac2bf99"}
+
+curl localhost:8000/songs/a1e66ac2bf99           # status, current step; spec + lyrics + links when done
+curl -o song.mp3 localhost:8000/songs/a1e66ac2bf99/audio
+```
+
+| Endpoint | |
+|---|---|
+| `POST /songs` | `{prompt, path?: "A"\|"B"\|"C", theme?}` → 202 with a job id |
+| `GET /songs/{id}` | `status` (queued/running/done/failed), `step`, `result` or `error` |
+| `GET /songs/{id}/audio` | the audio file (409 until done) |
+| `GET /songs/{id}/midi` | MIDI, path B only |
+| `GET /songs` | all jobs, newest first |
+| `GET /health` | which audio backends are available |
+
+Jobs run one at a time and are kept in memory (lost on restart; files in `output/` stay).
+
 ## Free vocals with ACE-Step (path C)
 
 ACE-Step 1.5 runs locally as a separate server (it needs Python 3.11–3.12, so it has its own env).
