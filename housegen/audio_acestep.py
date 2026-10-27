@@ -77,6 +77,9 @@ def render(spec: dict, lyrics: dict, out_path: str, timeout_s: int = 1800) -> st
         raise TimeoutError(f"ACE-Step task {task_id} did not finish in {timeout_s}s")
 
     outputs = json.loads(item["result"])
+    # The server reports success even when saving the file failed (e.g. broken ffmpeg); check its log.
+    if not outputs or not outputs[0].get("file"):
+        raise RuntimeError(f"ACE-Step returned no audio file (see the server log): {item['result'][:300]}")
     audio = requests.get(_base() + outputs[0]["file"], headers=_headers(), timeout=120)
     audio.raise_for_status()
     with open(out_path, "wb") as f:
