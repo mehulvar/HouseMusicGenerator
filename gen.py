@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from housegen import audio_eleven, audio_procedural, lyrics, parse, profile, spec, spotify  # noqa: E402
+from housegen import audio_acestep, audio_eleven, audio_procedural, lyrics, parse, profile, spec, spotify  # noqa: E402
 
 
 def slug(s: str) -> str:
@@ -35,12 +35,17 @@ def run(prompt: str, path: str | None = None, theme: str | None = None, out_dir:
     words = lyrics.write_lyrics(style, lyrics.fetch_inspiration(theme))
     print(f"   \"{words['title']}\" / hook: {words['hook'][0]}")
 
-    path = (path or ("A" if audio_eleven.available() else "B")).upper()
+    if not path:
+        path = "C" if audio_acestep.available() else "A" if audio_eleven.available() else "B"
+    path = path.upper()
     os.makedirs(out_dir, exist_ok=True)
     base = os.path.join(out_dir, f"{datetime.now():%Y%m%d-%H%M%S}-{slug(words['title'])}")
 
     print(f"6. audio (path {path})")
-    if path == "A":
+    if path == "C":
+        print("   (ACE-Step can take a few minutes)")
+        audio = audio_acestep.render(style, words, base + ".mp3")
+    elif path == "A":
         audio = audio_eleven.render(style, words, base + ".mp3")
     else:
         audio_procedural.build_midi(style, base + ".mid")
@@ -64,7 +69,12 @@ def run(prompt: str, path: str | None = None, theme: str | None = None, out_dir:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("prompt")
-    ap.add_argument("--path", choices=["A", "B", "a", "b"], help="A=ElevenLabs (vocals), B=procedural (default if no key)")
+    ap.add_argument(
+        "--path",
+        choices=["A", "B", "C", "a", "b", "c"],
+        help="A=ElevenLabs (paid, vocals), B=procedural (instrumental), C=local ACE-Step (free, vocals). "
+        "Default: C if its server is up, else A if keyed, else B",
+    )
     ap.add_argument("--theme", help="lyric inspiration text instead of an RSS headline")
     ap.add_argument("--out", default="output")
     a = ap.parse_args()

@@ -13,7 +13,8 @@
 | 3. Style profile (GetSongBPM + LLM description) | `housegen/profile.py` | house defaults: 122–126 BPM, A minor |
 | 4. Style spec JSON (never contains the artist name) | `housegen/spec.py` | — |
 | 5. Lyrics from an RSS headline / poem / `--theme` | `housegen/lyrics.py` | built-in lyrics |
-| 6A. ElevenLabs Music (vocals) | `housegen/audio_eleven.py` | path B |
+| 6C. Local ACE-Step 1.5 server (free, vocals) | `housegen/audio_acestep.py` | path A |
+| 6A. ElevenLabs Music (paid, vocals) | `housegen/audio_eleven.py` | path B |
 | 6B. Procedural MIDI + numpy synth (instrumental) | `housegen/audio_procedural.py` | wav if ffmpeg is missing |
 
 ## Setup
@@ -26,3 +27,23 @@ cp .env.example .env   # fill in whichever keys you have
 
 Outputs go to `output/`: `.mp3` (or `.wav`), `.mid` (path B), and `.json` (reference, profile, spec, lyrics).
 mp3 encoding needs a working `ffmpeg` (`brew install ffmpeg`).
+
+## Free vocals with ACE-Step (path C)
+
+ACE-Step 1.5 runs locally as a separate server (it needs Python 3.11–3.12, so it has its own env).
+Install once, next to this repo:
+
+```bash
+brew install uv
+git clone https://github.com/ACE-Step/ACE-Step-1.5.git ../ACE-Step-1.5
+cd ../ACE-Step-1.5 && uv sync
+```
+
+Start the server in its own terminal (models download on first run, several GB):
+
+```bash
+cd ../ACE-Step-1.5
+ACESTEP_LM_BACKEND=mlx TOKENIZERS_PARALLELISM=false uv run acestep-api --host 127.0.0.1 --port 8001
+```
+
+While it's running, `gen.py` uses it automatically (or force it with `--path C`).
