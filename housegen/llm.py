@@ -1,22 +1,16 @@
-"""Thin Claude wrapper. Returns None when no API key is configured so callers can fall back."""
+"""Thin Groq wrapper (OpenAI-compatible API). Returns None when no API key is configured so callers can fall back."""
 import json
 import os
 import re
 
-_client = None
+import requests
+
+API_URL = "https://api.groq.com/openai/v1/chat/completions"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 
 def available() -> bool:
-    return bool(os.getenv("ANTHROPIC_API_KEY"))
-
-
-def _get_client():
-    global _client
-    if _client is None:
-        import anthropic
-
-        _client = anthropic.Anthropic()
-    return _client
+    return bool(os.getenv("GROQ_API_KEY"))
 
 
 def ask_json(system: str, prompt: str, max_tokens: int = 1500):
@@ -24,15 +18,27 @@ def ask_json(system: str, prompt: str, max_tokens: int = 1500):
     if not available():
         return None
     try:
-        resp = _get_client().messages.create(
-            model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
-            max_tokens=max_tokens,
-            system=system + "\nRespond with a single JSON object only, no prose, no code fences.",
-            messages=[{"role": "user", "content": prompt}],
+        resp = requests.post(
+            API_URL,
+            headers={"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"},
+            json={
+                "model": os.getenv("GROQ_MODEL") or DEFAULT_MODEL,
+                # Reasoning models spend tokens thinking before answering; leave headroom.
+                "max_completion_tokens": max_tokens + 2000,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": system + "\nRespond with a single JSON object only."},
+                    {"role": "user", "content": prompt},
+                ],
+            },
+            timeout=60,
         )
-        text = "".join(b.text for b in resp.content if b.type == "text")
+        if not resp.ok:
+            print(f"  [llm] HTTP {resp.status_code}: {resp.text[:300]}")
+            return None
+        text = resp.json()["choices"][0]["message"]["content"] or ""
         match = re.search(r"\{.*\}", text, re.DOTALL)
         return json.loads(match.group(0)) if match else None
-    except Exception as e:  # network, auth, bad JSON
+    except Exception as e:  # network, bad JSON
         print(f"  [llm] failed: {e}")
         return None

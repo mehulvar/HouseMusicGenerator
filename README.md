@@ -6,7 +6,7 @@
 
 | Step | Module | Fallback when a key is missing |
 |---|---|---|
-| 1. Parse prompt → `{artist, track}` | `housegen/parse.py` (regex, then LLM) | empty reference |
+| 1. Parse prompt → `{artist, track}` | `housegen/parse.py` (regex, then LLM via Groq, `housegen/llm.py`) | empty reference |
 | 2. Resolve on Spotify (client credentials) | `housegen/spotify.py` | skipped |
 | 3. Style profile (GetSongBPM + LLM description) | `housegen/profile.py` | house defaults: 122–126 BPM, A minor |
 | 4. Style spec JSON (never contains the artist name) | `housegen/spec.py` | — |
