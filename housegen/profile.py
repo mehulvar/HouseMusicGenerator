@@ -49,7 +49,8 @@ def _llm_describe(artist: str, track: str, meta: dict | None) -> dict | None:
         "You are a music producer who describes the sound of tracks in technical, artist-agnostic terms.",
         f"Describe the production style of {ref}.\n"
         'Return {"bpm": int, "key": "e.g. F minor", "subgenre": str, "drum_feel": str, '
-        '"instruments": [str], "mood": str, "energy": float 0-1}. '
+        '"instruments": [str], "mood": str, "energy": float 0-1, '
+        '"vocal_style": "e.g. warm soulful female lead vocal"}. '
         "Never mention any artist or song names in the values.",
         max_tokens=500,
     )

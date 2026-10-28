@@ -5,7 +5,7 @@ import time
 
 import requests
 
-from .spec import describe, parse_key
+from .spec import parse_key
 
 TAGS = {"intro": "intro", "build": "verse", "drop": "chorus", "break": "bridge", "outro": "outro"}
 
@@ -45,10 +45,39 @@ def duration_s(spec: dict) -> float:
     return min(600.0, bars * 4 * 60 / spec["bpm"])
 
 
-def render(spec: dict, lyrics: dict, out_path: str, timeout_s: int = 1800) -> str:
+def caption(spec: dict) -> str:
+    """ACE-Step caption: concrete genre, instruments, vocal and production descriptors (per its guide)."""
+    # Space words pull the whole mix (vocals included) toward heavy reverb, and "vocal chops"-style
+    # instruments make the lead sound processed/robotic; the vocal is described separately below.
+    blocked = ("reverb", "atmospher", "ethereal", "vocal", "voice")
+    instruments = [i for i in spec["instruments"] if not any(w in i.lower() for w in blocked)]
+    vocal = spec.get("vocals", {}).get("style", "warm soulful female lead vocal")
+    vocal = vocal[:1].upper() + vocal[1:]
+    return (
+        f"{spec['subgenre']}, classic house groove at {spec['bpm']} BPM, punchy four-on-the-floor kick, "
+        f"crisp offbeat open hi-hats, claps on 2 and 4, {spec['bass']['style']}, {spec['chords']['voicing']}, "
+        f"{', '.join(instruments)}. Mood: {spec['mood']}. "
+        f"{vocal}, natural human singing, dry and upfront, close-mic'd, intimate, minimal reverb. "
+        "Polished modern club production, tight low end."
+    )
+
+
+def settings() -> dict:
+    """Generation knobs, overridable from .env for tuning."""
+    out = {
+        "inference_steps": int(os.getenv("ACESTEP_STEPS", "8")),
+        "thinking": os.getenv("ACESTEP_THINKING", "true").lower() == "true",
+    }
+    if os.getenv("ACESTEP_MODEL"):
+        out["model"] = os.environ["ACESTEP_MODEL"]
+    return out
+
+
+def render(spec: dict, lyrics: dict, out_path: str, timeout_s: int = 1800, **overrides) -> str:
+    """overrides are merged into the request body last (e.g. seed, thinking, prompt) for A/B tests."""
     root, mode = parse_key(spec["key"])
     body = {
-        "prompt": describe(spec) + " Clear lead vocal, club mix.",
+        "prompt": caption(spec),
         "lyrics": tagged_lyrics(spec, lyrics),
         "vocal_language": "en",
         "audio_duration": duration_s(spec),
@@ -57,6 +86,8 @@ def render(spec: dict, lyrics: dict, out_path: str, timeout_s: int = 1800) -> st
         "time_signature": "4",
         "audio_format": "mp3",
         "batch_size": 1,
+        **settings(),
+        **overrides,
     }
     r = requests.post(f"{_base()}/release_task", json=body, headers=_headers(), timeout=30)
     r.raise_for_status()

@@ -69,6 +69,7 @@ def build_spec(profile: dict, banned_names: list[str]) -> dict:
             "bars_per_chord": 2,
         },
         "instruments": list(profile.get("instruments", [])),
+        "vocals": {"style": profile.get("vocal_style") or "warm soulful female lead vocal"},
         "mood": profile.get("mood", ""),
         "energy": energy,
         "structure": STRUCTURE,
