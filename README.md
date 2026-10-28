@@ -28,11 +28,16 @@ cp .env.example .env   # fill in whichever keys you have
 Outputs go to `output/`: `.mp3` (or `.wav`), `.mid` (path B), and `.json` (reference, profile, spec, lyrics).
 mp3 encoding needs a working `ffmpeg` (`brew install ffmpeg`).
 
-## HTTP API
+## Web UI + HTTP API
 
 ```bash
-.venv/bin/uvicorn app:app --port 8000      # docs at http://localhost:8000/docs
+.venv/bin/uvicorn app:app --port 8000      # UI at http://localhost:8000, API docs at /docs
 ```
+
+The UI (`static/`) shows every song as a disc on a horizontal shelf (design nod to Ravi Klaassens'
+A24 tribute site). Disc art is generated from each song's spec: key picks the inks, BPM and energy
+shape the pattern. Click a disc to play it and see its spec, lyrics and downloads; `/#<id>` links
+straight to one. Songs already in `output/` are loaded at startup.
 
 Generation takes a minute or more, so it's a job API:
 

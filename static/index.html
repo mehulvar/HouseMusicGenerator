@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>House Music Generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;600;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="top">
+    <div class="mark">HMG<span>—</span>House Music Generator</div>
+    <div class="status mono" id="status">…</div>
+  </header>
+
+  <form class="press" id="press" autocomplete="off">
+    <label class="lead" for="prompt">Make a song like</label>
+    <input id="prompt" name="prompt" class="big" placeholder="“This Is What You Came For” by Calvin Harris" required>
+    <div class="row">
+      <input id="theme" name="theme" class="small mono" placeholder="Lyric theme (optional)">
+      <select id="path" name="path" class="small mono" aria-label="Audio engine">
+        <option value="">Engine: auto</option>
+        <option value="C">C — ACE-Step (vocals)</option>
+        <option value="B">B — Procedural (instrumental)</option>
+        <option value="A">A — ElevenLabs (vocals)</option>
+      </select>
+      <button type="submit" class="go">Press disc →</button>
+    </div>
+  </form>
+
+  <section class="shelf-wrap" aria-label="Library">
+    <div class="shelf-head mono"><span>Library</span><span id="count"></span><span class="hint">scroll / drag →</span></div>
+    <div class="shelf" id="shelf" tabindex="0"></div>
+  </section>
+
+  <div class="detail" id="detail" hidden>
+    <button class="close mono" id="close" aria-label="Close">Close ✕</button>
+    <div class="detail-disc"><div class="spin" id="spin"></div></div>
+    <article class="detail-info" id="info"></article>
+  </div>
+
+  <audio id="audio" preload="none"></audio>
+  <script src="/static/app.js"></script>
+</body>
+</html>

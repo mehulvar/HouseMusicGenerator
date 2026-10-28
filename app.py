@@ -6,9 +6,14 @@ Generation takes a minute or more, so it's a job API:
   GET  /songs/{id}/audio      -> the audio file
   GET  /songs/{id}/midi       -> MIDI (path B only)
   GET  /songs                 -> all jobs, newest first
+  GET  /                      -> the web UI (static/)
 
-Jobs live in memory, so they're lost on restart; the files in output/ are kept.
+Jobs live in memory, but finished songs in output/ are reloaded at startup.
 """
+import glob
+import hashlib
+import json
+import os
 import threading
 import traceback
 import uuid
@@ -18,17 +23,43 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import gen
 from housegen import audio_acestep, audio_eleven
 
 app = FastAPI(title="House Music Generator")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # One worker: ACE-Step processes one song at a time anyway, and the procedural synth is CPU-heavy.
 _executor = ThreadPoolExecutor(max_workers=1)
 _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
+
+
+def _load_existing(out_dir: str = "output"):
+    """Rebuild finished jobs from the JSON files gen.run leaves next to each song."""
+    for path in glob.glob(os.path.join(out_dir, "*.json")):
+        try:
+            with open(path) as f:
+                result = json.load(f)
+            files = result.get("files", {})
+            audio = files.get("audio") or files.get("mp3")  # older runs used an "mp3" key
+            if not audio or not os.path.exists(audio):
+                continue
+            files["audio"] = audio
+            job_id = hashlib.sha1(path.encode()).hexdigest()[:12]
+            created = datetime.fromtimestamp(os.path.getmtime(path), timezone.utc).isoformat()
+            _jobs[job_id] = {
+                "id": job_id, "status": "done", "step": None, "request": {"prompt": result.get("prompt")},
+                "created_at": created, "finished_at": created, "result": result,
+            }
+        except (OSError, ValueError, KeyError):
+            continue
+
+
+_load_existing()
 
 
 class SongRequest(BaseModel):
@@ -66,7 +97,7 @@ def _view(job: dict) -> dict:
             "title": r["lyrics"]["title"],
             "audio_path": r["audio_path"],
             "spec": r["spec"],
-            "lyrics": {k: r["lyrics"][k] for k in ("title", "hook", "verse")},
+            "lyrics": {k: r["lyrics"].get(k) for k in ("title", "hook", "verse", "inspiration")},
             "reference": r["reference"],
             "links": {
                 "audio": f"/songs/{job['id']}/audio",
@@ -82,6 +113,11 @@ def _get(job_id: str) -> dict:
         if not job:
             raise HTTPException(404, "No such song")
         return dict(job)
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse("static/index.html")
 
 
 @app.get("/health")
