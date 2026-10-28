@@ -59,18 +59,18 @@ Jobs run one at a time and are kept in memory (lost on restart; files in `output
 ## Free vocals with ACE-Step (path C)
 
 ACE-Step 1.5 runs locally as a separate server (it needs Python 3.11–3.12, so it has its own env).
-Install once, next to this repo:
+Install once, inside this repo (it's gitignored):
 
 ```bash
 brew install uv
-git clone https://github.com/ACE-Step/ACE-Step-1.5.git ../ACE-Step-1.5
-cd ../ACE-Step-1.5 && uv sync
+git clone https://github.com/ACE-Step/ACE-Step-1.5.git ACE-Step-1.5
+cd ACE-Step-1.5 && uv sync
 ```
 
 Start the server in its own terminal (models download on first run, several GB):
 
 ```bash
-cd ../ACE-Step-1.5
+cd ACE-Step-1.5
 ACESTEP_LM_BACKEND=mlx TOKENIZERS_PARALLELISM=false uv run acestep-api --host 127.0.0.1 --port 8001
 ```
 

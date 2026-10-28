@@ -6,3 +6,5 @@ output/
 .cache
 .DS_Store
 .vscode/
+# Local ACE-Step install (own git repo + multi-GB models)
+ACE-Step-1.5/
