@@ -45,7 +45,7 @@ def duration_s(spec: dict) -> float:
     return min(600.0, bars * 4 * 60 / spec["bpm"])
 
 
-def caption(spec: dict) -> str:
+def caption(spec: dict, clarity: bool = True) -> str:
     """ACE-Step caption: concrete genre, instruments, vocal and production descriptors (per its guide)."""
     # Space words pull the whole mix (vocals included) toward heavy reverb, and "vocal chops"-style
     # instruments make the lead sound processed/robotic; the vocal is described separately below.
@@ -58,8 +58,16 @@ def caption(spec: dict) -> str:
         f"crisp offbeat open hi-hats, claps on 2 and 4, {spec['bass']['style']}, {spec['chords']['voicing']}, "
         f"{', '.join(instruments)}. Mood: {spec['mood']}. "
         f"{vocal}, natural human singing, dry and upfront, close-mic'd, intimate, minimal reverb. "
-        "Polished modern club production, tight low end."
+        + (CLARITY if clarity else "")
+        + "Polished modern club production, tight low end."
     )
+
+
+# Describing tone alone left lyrics hard to make out; ask for intelligibility and vocal level explicitly.
+CLARITY = (
+    "Clear diction and crisp consonants, every word of the lyrics intelligible, "
+    "lead vocal loud and centered, sitting clearly above the instrumental. "
+)
 
 
 def settings() -> dict:
