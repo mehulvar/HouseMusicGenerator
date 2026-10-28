@@ -45,7 +45,7 @@ def run(
     style = spec.build_spec(prof, banned)
 
     step(5, "lyrics")
-    words = lyrics.write_lyrics(style, lyrics.fetch_inspiration(theme))
+    words = lyrics.write_lyrics(style, lyrics.fetch_inspiration(theme, style))
     print(f"   \"{words['title']}\" / hook: {words['hook'][0]}")
 
     if not path:
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         help="A=ElevenLabs (paid, vocals), B=procedural (instrumental), C=local ACE-Step (free, vocals). "
         "Default: C if its server is up, else A if keyed, else B",
     )
-    ap.add_argument("--theme", help="lyric inspiration text instead of an RSS headline")
+    ap.add_argument("--theme", help="lyric theme (default: one invented to suit the reference's mood)")
     ap.add_argument("--out", default="output")
     a = ap.parse_args()
     run(a.prompt, a.path, a.theme, a.out)

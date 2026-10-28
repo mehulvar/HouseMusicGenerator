@@ -12,7 +12,7 @@
 | 2. Resolve on Spotify (client credentials) | `housegen/spotify.py` | skipped |
 | 3. Style profile ([ReccoBeats](https://reccobeats.com) audio features + LLM description) | `housegen/profile.py` | house defaults: 122–126 BPM, A minor |
 | 4. Style spec JSON (never contains the artist name) | `housegen/spec.py` | — |
-| 5. Lyrics from an RSS headline / poem / `--theme` | `housegen/lyrics.py` | built-in lyrics |
+| 5. Lyrics from `--theme`, else a theme invented from the reference's mood | `housegen/lyrics.py` | public-domain poem line + built-in lyrics |
 | 6C. Local ACE-Step 1.5 server (free, vocals) | `housegen/audio_acestep.py` | path A |
 | 6A. ElevenLabs Music (paid, vocals) | `housegen/audio_eleven.py` | path B |
 | 6B. Procedural MIDI + numpy synth (instrumental) | `housegen/audio_procedural.py` | wav if ffmpeg is missing |

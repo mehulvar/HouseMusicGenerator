@@ -1,16 +1,8 @@
-"""Step 5: fetch outside text for inspiration, then write original lyrics fitted to the structure."""
+"""Step 5: pick a lyric theme, then write original lyrics fitted to the structure."""
 import random
 import re
-import xml.etree.ElementTree as ET
-
-import requests
 
 from . import llm
-
-RSS_FEEDS = [
-    "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
-]
 
 # Public-domain fallback (Emily Dickinson, Walt Whitman).
 POEMS = [
@@ -20,18 +12,21 @@ POEMS = [
 ]
 
 
-def fetch_inspiration(user_text: str | None = None) -> dict:
+def fetch_inspiration(user_text: str | None = None, spec: dict | None = None) -> dict:
+    """User theme wins; otherwise invent one that fits the reference's mood; poem as last resort."""
     if user_text:
         return {"source": "user", "text": user_text}
-    for url in RSS_FEEDS:
-        try:
-            r = requests.get(url, timeout=8)
-            r.raise_for_status()
-            titles = [t.text for t in ET.fromstring(r.content).iter("title") if t.text]
-            if len(titles) > 2:
-                return {"source": url, "text": random.choice(titles[2:])}  # skip feed titles
-        except Exception:
-            continue
+    if spec:
+        result = llm.ask_json(
+            "You come up with lyric themes for dance tracks.",
+            f"Track: {spec['subgenre']}, {spec['bpm']} BPM, {spec['key']}, mood: {spec['mood']}, "
+            f"energy {spec['energy']}.\n"
+            "Suggest one specific, evocative lyric theme (a scene or feeling, one sentence) that suits this "
+            'track on a dance floor. Return {"theme": str}.',
+            max_tokens=150,
+        )
+        if result and result.get("theme"):
+            return {"source": "llm (from reference mood)", "text": result["theme"]}
     return {"source": "public-domain poem", "text": random.choice(POEMS)}
 
 

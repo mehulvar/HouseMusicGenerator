@@ -36,7 +36,7 @@ class SongRequest(BaseModel):
     path: Literal["A", "B", "C"] | None = Field(
         None, description="A=ElevenLabs, B=procedural, C=local ACE-Step. Default picks the best available."
     )
-    theme: str | None = Field(None, description="Lyric inspiration instead of an RSS headline")
+    theme: str | None = Field(None, description="Lyric theme (default: one invented to suit the reference's mood)")
 
 
 def _update(job_id: str, **fields):
