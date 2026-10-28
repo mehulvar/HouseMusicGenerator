@@ -8,3 +8,6 @@ output/
 .vscode/
 # Local ACE-Step install (own git repo + multi-GB models)
 ACE-Step-1.5/
+.vercel
+.env*
+!.env.example

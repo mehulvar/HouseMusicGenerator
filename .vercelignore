@@ -1,0 +1,10 @@
+# Keep deployments small: generation happens on the Mac, not on Vercel.
+ACE-Step-1.5/
+output/
+.venv/
+.cache
+.env
+.env.*
+!.env.example
+scripts/
+worker.py

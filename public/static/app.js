@@ -251,7 +251,12 @@ async function health() {
   try {
     const h = await (await fetch("/health")).json();
     const el = $("#status");
-    el.textContent = h.acestep ? "ACE-Step online — vocals" : "ACE-Step offline — instrumental only";
+    if (h.mode === "cloud") {
+      const q = h.queued ? ` · ${h.queued} queued` : "";
+      el.textContent = h.acestep ? `Studio online${q}` : `Studio offline — new discs wait in the queue${q}`;
+    } else {
+      el.textContent = h.acestep ? "ACE-Step online — vocals" : "ACE-Step offline — instrumental only";
+    }
     el.classList.toggle("on", h.acestep);
   } catch { $("#status").textContent = "API offline"; }
 }

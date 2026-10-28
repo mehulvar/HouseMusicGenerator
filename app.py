@@ -1,98 +1,58 @@
-"""FastAPI wrapper around gen.run. Run with: .venv/bin/uvicorn app:app --reload
+"""FastAPI app: web UI + job API. Locally: .venv/bin/uvicorn app:app --reload. On Vercel: deployed as-is.
 
 Generation takes a minute or more, so it's a job API:
   POST /songs                 -> 202 {id, status}
   GET  /songs/{id}            -> status, current step, and result (spec, lyrics, links) when done
-  GET  /songs/{id}/audio      -> the audio file
+  GET  /songs/{id}/audio      -> the audio file (local) or a redirect to it (cloud)
   GET  /songs/{id}/midi       -> MIDI (path B only)
   GET  /songs                 -> all jobs, newest first
-  GET  /                      -> the web UI (static/)
+  GET  /                      -> the web UI (public/)
 
-Jobs live in memory, but finished songs in output/ are reloaded at startup.
+Storage mode is picked from the environment (see housegen/store.py): with Upstash Redis configured
+(on Vercel) jobs are queued for worker.py on your Mac; otherwise everything runs in this process.
+Worker endpoints (/worker/*) need `Authorization: Bearer $WORKER_TOKEN`.
 """
-import glob
-import hashlib
-import json
 import os
-import threading
-import traceback
-import uuid
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+import secrets
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-import gen
-from housegen import audio_acestep, audio_eleven
+from housegen.store import RateLimited, blob_put, get_store
 
 app = FastAPI(title="House Music Generator")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+store = get_store()
 
-# One worker: ACE-Step processes one song at a time anyway, and the procedural synth is CPU-heavy.
-_executor = ThreadPoolExecutor(max_workers=1)
-_jobs: dict[str, dict] = {}
-_lock = threading.Lock()
+if store.mode == "local":
+    # On Vercel, public/ is served by the CDN; locally FastAPI serves it.
+    app.mount("/static", StaticFiles(directory="public/static"), name="static")
 
-
-def _load_existing(out_dir: str = "output"):
-    """Rebuild finished jobs from the JSON files gen.run leaves next to each song."""
-    for path in glob.glob(os.path.join(out_dir, "*.json")):
-        try:
-            with open(path) as f:
-                result = json.load(f)
-            files = result.get("files", {})
-            audio = files.get("audio") or files.get("mp3")  # older runs used an "mp3" key
-            if not audio or not os.path.exists(audio):
-                continue
-            files["audio"] = audio
-            job_id = hashlib.sha1(path.encode()).hexdigest()[:12]
-            created = datetime.fromtimestamp(os.path.getmtime(path), timezone.utc).isoformat()
-            _jobs[job_id] = {
-                "id": job_id, "status": "done", "step": None, "request": {"prompt": result.get("prompt")},
-                "created_at": created, "finished_at": created, "result": result,
-            }
-        except (OSError, ValueError, KeyError):
-            continue
-
-
-_load_existing()
+    @app.get("/", include_in_schema=False)
+    def index():
+        return FileResponse("public/index.html")
 
 
 class SongRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, examples=["make a song like calvin harris's Summer"])
+    prompt: str = Field(..., min_length=1, max_length=300, examples=["make a song like calvin harris's Summer"])
     path: Literal["A", "B", "C"] | None = Field(
         None, description="A=ElevenLabs, B=procedural, C=local ACE-Step. Default picks the best available."
     )
-    theme: str | None = Field(None, description="Lyric theme (default: one invented to suit the reference's mood)")
+    theme: str | None = Field(None, max_length=300, description="Lyric theme (default: one invented to suit the reference's mood)")
 
 
-def _update(job_id: str, **fields):
-    with _lock:
-        _jobs[job_id].update(fields)
-
-
-def _work(job_id: str, req: SongRequest):
-    _update(job_id, status="running")
-    try:
-        result = gen.run(req.prompt, req.path, req.theme, on_step=lambda s: _update(job_id, step=s))
-        _update(job_id, status="done", step=None, result=result, finished_at=_now())
-    except Exception as e:
-        traceback.print_exc()
-        _update(job_id, status="failed", error=f"{type(e).__name__}: {e}", finished_at=_now())
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _link(job: dict, kind: str, files: dict) -> str:
+    target = files.get(kind)
+    return target if str(target).startswith("http") else f"/songs/{job['id']}/{kind}"
 
 
 def _view(job: dict) -> dict:
     out = {k: v for k, v in job.items() if k != "result"}
     r = job.get("result")
     if r:
+        files = r.get("files", {})
         out["result"] = {
             "title": r["lyrics"]["title"],
             "audio_path": r["audio_path"],
@@ -100,45 +60,42 @@ def _view(job: dict) -> dict:
             "lyrics": {k: r["lyrics"].get(k) for k in ("title", "hook", "verse", "inspiration")},
             "reference": r["reference"],
             "links": {
-                "audio": f"/songs/{job['id']}/audio",
-                **({"midi": f"/songs/{job['id']}/midi"} if "midi" in r["files"] else {}),
+                "audio": _link(job, "audio", files),
+                **({"midi": _link(job, "midi", files)} if "midi" in files else {}),
             },
         }
     return out
 
 
 def _get(job_id: str) -> dict:
-    with _lock:
-        job = _jobs.get(job_id)
-        if not job:
-            raise HTTPException(404, "No such song")
-        return dict(job)
+    job = store.get(job_id)
+    if not job:
+        raise HTTPException(404, "No such song")
+    return job
 
 
-@app.get("/", include_in_schema=False)
-def index():
-    return FileResponse("static/index.html")
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "acestep": audio_acestep.available(), "elevenlabs": audio_eleven.available()}
+    return {"ok": True, **store.health()}
 
 
 @app.post("/songs", status_code=202)
-def create_song(req: SongRequest):
-    job_id = uuid.uuid4().hex[:12]
-    with _lock:
-        _jobs[job_id] = {"id": job_id, "status": "queued", "step": None, "request": req.model_dump(), "created_at": _now()}
-    _executor.submit(_work, job_id, req)
-    return {"id": job_id, "status": "queued", "url": f"/songs/{job_id}"}
+def create_song(req: SongRequest, request: Request):
+    try:
+        job = store.create(req.model_dump(), _client_ip(request))
+    except RateLimited as e:
+        raise HTTPException(429, str(e))
+    return {"id": job["id"], "status": job["status"], "url": f"/songs/{job['id']}"}
 
 
 @app.get("/songs")
 def list_songs():
-    with _lock:
-        jobs = sorted(_jobs.values(), key=lambda j: j["created_at"], reverse=True)
-        return [_view(j) for j in jobs]
+    return [_view(j) for j in store.list()]
 
 
 @app.get("/songs/{job_id}")
@@ -146,14 +103,16 @@ def get_song(job_id: str):
     return _view(_get(job_id))
 
 
-def _file(job_id: str, kind: str) -> FileResponse:
+def _file(job_id: str, kind: str):
     job = _get(job_id)
     if job["status"] != "done":
         raise HTTPException(409, f"Song is {job['status']}")
-    path = job["result"]["files"].get(kind)
-    if not path:
+    target = job["result"].get("files", {}).get(kind)
+    if not target:
         raise HTTPException(404, f"No {kind} for this song")
-    return FileResponse(path, filename=path.rsplit("/", 1)[-1])
+    if str(target).startswith("http"):
+        return RedirectResponse(target)
+    return FileResponse(target, filename=target.rsplit("/", 1)[-1])
 
 
 @app.get("/songs/{job_id}/audio")
@@ -164,3 +123,61 @@ def get_audio(job_id: str):
 @app.get("/songs/{job_id}/midi")
 def get_midi(job_id: str):
     return _file(job_id, "midi")
+
+
+# ---------- worker API (cloud mode only) ----------
+def _worker_auth(authorization: str = Header("")):
+    expected = os.getenv("WORKER_TOKEN")
+    if store.mode != "cloud" or not expected:
+        raise HTTPException(404)
+    if not secrets.compare_digest(authorization, f"Bearer {expected}"):
+        raise HTTPException(401, "Bad worker token")
+
+
+class Heartbeat(BaseModel):
+    acestep: bool = False
+
+
+class JobUpdate(BaseModel):
+    status: Literal["running", "done", "failed"] | None = None
+    step: str | None = None
+    error: str | None = None
+    result: dict | None = None
+
+
+class Publish(BaseModel):
+    result: dict
+    request: dict
+    created_at: str | None = None
+
+
+@app.post("/worker/heartbeat", dependencies=[Depends(_worker_auth)])
+def worker_heartbeat(hb: Heartbeat):
+    store.heartbeat(hb.model_dump())
+    return {"ok": True}
+
+
+@app.post("/worker/claim", dependencies=[Depends(_worker_auth)])
+def worker_claim(hb: Heartbeat):
+    store.heartbeat(hb.model_dump())
+    job = store.claim() if hb.acestep else None  # without ACE-Step there'd be no vocals; leave jobs queued
+    return job or Response(status_code=204)
+
+
+@app.post("/worker/jobs/{job_id}", dependencies=[Depends(_worker_auth)])
+def worker_update(job_id: str, upd: JobUpdate):
+    job = store.update(job_id, upd.model_dump(exclude_none=True))
+    if not job:
+        raise HTTPException(404, "No such song")
+    return {"ok": True}
+
+
+@app.post("/worker/upload", dependencies=[Depends(_worker_auth)])
+async def worker_upload(request: Request, pathname: str, content_type: str = "audio/mpeg"):
+    return {"url": blob_put(pathname, await request.body(), content_type)}
+
+
+@app.post("/worker/publish", dependencies=[Depends(_worker_auth)])
+def worker_publish(p: Publish):
+    job = store.publish(p.result, p.created_at, p.request)
+    return {"id": job["id"]}
