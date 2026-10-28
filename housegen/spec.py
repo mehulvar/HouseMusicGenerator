@@ -45,6 +45,23 @@ def scrub(value, banned: list[str]):
     return value
 
 
+def feel_words(energy: float, features: dict) -> list[str]:
+    """Turn measured audio features (0-1) into descriptors a music model understands."""
+    words = []
+    if energy >= 0.8:
+        words.append("high-energy, festival-sized")
+    elif energy < 0.5:
+        words.append("laid-back")
+    v = features.get("valence")
+    if v is not None:
+        words.append("euphoric, sunny and feel-good" if v >= 0.6 else "dark, melancholic" if v < 0.35 else "bittersweet")
+    if features.get("danceability", 0) >= 0.7:
+        words.append("bouncy, groovy")
+    if features.get("acousticness", 1) < 0.1:
+        words.append("fully electronic")
+    return words
+
+
 def build_spec(profile: dict, banned_names: list[str]) -> dict:
     root, mode = parse_key(profile.get("key", ""))
     energy = float(profile.get("energy", 0.7))
@@ -70,6 +87,9 @@ def build_spec(profile: dict, banned_names: list[str]) -> dict:
         },
         "instruments": list(profile.get("instruments", [])),
         "vocals": {"style": profile.get("vocal_style") or "warm soulful female lead vocal"},
+        "signature": list(profile.get("signature_elements") or []),
+        "production": profile.get("production", ""),
+        "feel": feel_words(energy, profile.get("features") or {}),
         "mood": profile.get("mood", ""),
         "energy": energy,
         "structure": STRUCTURE,

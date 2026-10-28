@@ -37,6 +37,9 @@ def _reccobeats(spotify_id: str | None) -> dict | None:
             out["key"] = f"{NOTE_NAMES[f['key']]} {'major' if f.get('mode') == 1 else 'minor'}"
         if f.get("energy") is not None:
             out["energy"] = round(float(f["energy"]), 2)
+        features = {k: round(float(f[k]), 2) for k in ("valence", "danceability", "acousticness") if f.get(k) is not None}
+        if features:
+            out["features"] = features
         return out or None
     except Exception as e:
         print(f"  [reccobeats] failed: {e}")
@@ -50,9 +53,13 @@ def _llm_describe(artist: str, track: str, meta: dict | None) -> dict | None:
         f"Describe the production style of {ref}.\n"
         'Return {"bpm": int, "key": "e.g. F minor", "subgenre": str, "drum_feel": str, '
         '"instruments": [str], "mood": str, "energy": float 0-1, '
-        '"vocal_style": "e.g. warm soulful female lead vocal"}. '
+        '"vocal_style": "gender, tone and delivery of the lead vocal as in the original", '
+        '"signature_elements": ["3-5 distinctive sonic hooks a listener would recognize, '
+        'e.g. pitched-up plucky lead riff, filtered disco sample"], '
+        '"production": "era and mix character, e.g. 2014 festival electro house, wide supersaw drops"}. '
+        "Be specific to this track, not generic for the genre. "
         "Never mention any artist or song names in the values.",
-        max_tokens=500,
+        max_tokens=700,
     )
 
 

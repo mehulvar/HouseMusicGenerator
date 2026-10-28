@@ -1,6 +1,7 @@
 """Path C: spec + lyrics -> local ACE-Step 1.5 server (free, sung vocals). See README for running the server."""
 import json
 import os
+import re
 import time
 
 import requests
@@ -52,14 +53,23 @@ def caption(spec: dict) -> str:
     blocked = ("reverb", "atmospher", "ethereal", "vocal", "voice")
     instruments = [i for i in spec["instruments"] if not any(w in i.lower() for w in blocked)]
     vocal = spec.get("vocals", {}).get("style", "warm soulful female lead vocal")
+    vocal = re.sub(r"\b(slightly |heavily )?(processed|auto-?tuned|vocoded|robotic)\b,?\s*", "", vocal, flags=re.I)
+    vocal = vocal.strip(" ,")
     vocal = vocal[:1].upper() + vocal[1:]
-    return (
-        f"{spec['subgenre']}, classic house groove at {spec['bpm']} BPM, punchy four-on-the-floor kick, "
+    signature = [s for s in spec.get("signature", []) if not any(w in s.lower() for w in ("vocal", "voice", "chop"))]
+    parts = [
+        f"{spec['subgenre']}, house groove at {spec['bpm']} BPM, punchy four-on-the-floor kick, "
         f"crisp offbeat open hi-hats, claps on 2 and 4, {spec['bass']['style']}, {spec['chords']['voicing']}, "
-        f"{', '.join(instruments)}. Mood: {spec['mood']}. "
-        f"{vocal}, natural human singing, dry and upfront, close-mic'd, intimate, minimal reverb. "
-        "Polished modern club production, tight low end."
-    )
+        f"{', '.join(instruments)}.",
+    ]
+    if signature:
+        parts.append(f"Signature sounds: {', '.join(signature)}.")
+    feel = ", ".join([*spec.get("feel", []), spec["mood"]])
+    parts.append(f"Mood: {feel}.")
+    parts.append(f"{vocal}, natural human singing, dry and upfront, close-mic'd, minimal reverb.")
+    parts.append(f"{spec['production']}, polished club mix, tight low end." if spec.get("production")
+                 else "Polished modern club production, tight low end.")
+    return " ".join(parts)
 
 
 def settings() -> dict:
