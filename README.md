@@ -28,13 +28,28 @@ cp .env.example .env   # fill in whichever keys you have
 Outputs go to `output/`: `.mp3` (or `.wav`), `.mid` (path B), and `.json` (reference, profile, spec, lyrics).
 mp3 encoding needs a working `ffmpeg` (`brew install ffmpeg`).
 
-## Web UI + HTTP API
+## Deployed on Vercel (queue + Mac studio)
+
+ACE-Step needs this Mac, so the deployed site is split in two:
+
+- **Vercel** (`app.py` in cloud mode): the website and API. Songs live in Vercel Blob, the job queue
+  in Upstash Redis. Anyone can listen any time; "Press disc" adds a job to the queue
+  (`DAILY_SONG_LIMIT` per visitor, default 3).
+- **This Mac** (`worker.py`): double-click **`Start Studio.command`**. It starts ACE-Step and the worker,
+  which makes queued songs and uploads them. Close the window to stop; new requests wait in the queue.
+
+Env: Vercel has `KV_REST_API_URL`/`KV_REST_API_TOKEN` (Upstash), `BLOB_READ_WRITE_TOKEN`, and
+`WORKER_TOKEN`. The Mac's `.env` has `HOUSEGEN_API_URL` (the site URL) and `HOUSEGEN_WORKER_TOKEN`
+(same value as `WORKER_TOKEN`). Deploy with `vercel deploy --prod`. To upload songs you made locally
+with `gen.py`: `.venv/bin/python worker.py --publish-existing`.
+
+## Web UI + HTTP API (local)
 
 ```bash
 .venv/bin/uvicorn app:app --port 8000      # UI at http://localhost:8000, API docs at /docs
 ```
 
-The UI (`static/`) shows every song as a disc on a horizontal shelf (design nod to Ravi Klaassens'
+The UI (`public/`) shows every song as a disc on a horizontal shelf (design nod to Ravi Klaassens'
 A24 tribute site). Disc art is generated from each song's spec: key picks the inks, BPM and energy
 shape the pattern. Click a disc to play it and see its spec, lyrics and downloads; `/#<id>` links
 straight to one. Songs already in `output/` are loaded at startup.

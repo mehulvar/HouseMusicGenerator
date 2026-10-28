@@ -66,6 +66,7 @@ def run_job(job: dict):
         result = gen.run(req["prompt"], req.get("path"), req.get("theme"), on_step=step)
         step("uploading")
         post(f"/worker/jobs/{jid}", json={"status": "done", "result": cloud_result(result, jid)})
+        mark_published(result["files"]["json"])  # it's on the site already; --publish-existing must skip it
         log(f"job {jid}: done — {result['lyrics']['title']}")
     except Exception as e:
         traceback.print_exc()
@@ -86,8 +87,17 @@ def loop():
         time.sleep(5)
 
 
+def _published() -> set:
+    return set(json.load(open(PUBLISHED))) if os.path.exists(PUBLISHED) else set()
+
+
+def mark_published(json_path: str):
+    done = _published() | {json_path}
+    json.dump(sorted(done), open(PUBLISHED, "w"), indent=1)
+
+
 def publish_existing():
-    done = set(json.load(open(PUBLISHED))) if os.path.exists(PUBLISHED) else set()
+    done = _published()
     import glob
 
     for path in sorted(glob.glob("output/*.json")):
