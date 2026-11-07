@@ -5,7 +5,9 @@ missed start heals itself). Pushing the launcher notebook through Kaggle's API s
 of it and runs it on a T4, the same as clicking Save Version -> Save & Run All.
 
 Env: KAGGLE_NOTEBOOK ("username/notebook-slug") plus either KAGGLE_API_TOKEN (new-style token) or
-KAGGLE_USERNAME + KAGGLE_KEY (legacy kaggle.json key).
+KAGGLE_USERNAME + KAGGLE_KEY (legacy kaggle.json key). Optional KAGGLE_SECRETS_DATASET
+("username/dataset-slug", default "<username>/housegen-secrets"): a private dataset holding a .env file
+with HOUSEGEN_API_URL, HOUSEGEN_WORKER_TOKEN and GROQ_API_KEY, attached to every pushed run.
 """
 import json
 import os
@@ -21,6 +23,7 @@ BOOT_GRACE_S = 10 * 60  # after a push, wait this long for the run to check in b
 ACTIVE_STATUSES = ("queued", "running", "new_script", "cancel_requested")
 LOCK_KEY = "kaggle:trigger"
 STARTED_KEY = "kaggle:started"
+DEFAULT_SECRETS_DATASET = "housegen-secrets"
 
 
 class KaggleError(Exception):
@@ -77,6 +80,10 @@ def notebook_text(path: Path = NOTEBOOK_FILE) -> str:
     return json.dumps({**nb, "cells": cells})
 
 
+def secrets_dataset(owner: str) -> str:
+    return os.getenv("KAGGLE_SECRETS_DATASET") or f"{owner}/{DEFAULT_SECRETS_DATASET}"
+
+
 def push_and_run() -> dict:
     owner, slug = _notebook_ref()
     data = _call("SaveKernel", {
@@ -88,7 +95,11 @@ def push_and_run() -> dict:
         "enableGpu": True,
         "enableInternet": True,
         "machineShape": "NvidiaTeslaT4",
+        # Pushed versions don't keep the notebook's ticked secrets, so they come from a private dataset.
+        "datasetDataSources": [secrets_dataset(owner)],
     })
+    if data.get("invalidDatasetSources"):
+        raise KaggleError(f"SaveKernel: secrets dataset not found: {data['invalidDatasetSources']}")
     if data.get("error"):
         raise KaggleError(f"SaveKernel: {data['error']}")
     return data

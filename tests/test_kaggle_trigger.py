@@ -91,3 +91,19 @@ def test_bad_notebook_ref_is_a_clear_error(monkeypatch):
     monkeypatch.setenv("KAGGLE_NOTEBOOK", "no-slash")
     with pytest.raises(kt.KaggleError, match="username/notebook-slug"):
         kt._notebook_ref()
+
+
+def test_push_attaches_the_secrets_dataset(monkeypatch):
+    monkeypatch.setenv("KAGGLE_NOTEBOOK", "someone/studio")
+    monkeypatch.delenv("KAGGLE_SECRETS_DATASET", raising=False)
+    sent = {}
+    monkeypatch.setattr(kt, "_call", lambda method, body: sent.update(body) or {})
+    kt.push_and_run()
+    assert sent["datasetDataSources"] == ["someone/housegen-secrets"] and sent["slug"] == "someone/studio"
+
+
+def test_push_fails_clearly_when_secrets_dataset_is_missing(monkeypatch):
+    monkeypatch.setenv("KAGGLE_NOTEBOOK", "someone/studio")
+    monkeypatch.setattr(kt, "_call", lambda m, b: {"invalidDatasetSources": ["someone/housegen-secrets"]})
+    with pytest.raises(kt.KaggleError, match="secrets dataset not found"):
+        kt.push_and_run()

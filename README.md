@@ -68,6 +68,10 @@ has been empty for 90 s. Set these on Vercel (`vercel env add`):
 - `KAGGLE_API_TOKEN`: Kaggle → Settings → API → Generate New Token
   (or a legacy key: `KAGGLE_USERNAME` + `KAGGLE_KEY` from `kaggle.json`)
 
+Runs started through the API don't get the notebook's ticked secrets, so they read them from a **private
+Kaggle dataset** named `housegen-secrets` (override with `KAGGLE_SECRETS_DATASET`): upload a `housegen.env`
+file with `HOUSEGEN_API_URL`, `HOUSEGEN_WORKER_TOKEN`, `GROQ_API_KEY` (and `GROQ_MODEL`) lines. Keep it private.
+
 To start one by hand: **Save Version → Save & Run All**. Kaggle doesn't keep files between runs, so each run
 reinstalls ACE-Step and re-downloads the models (~10 GB) before the first song.
 

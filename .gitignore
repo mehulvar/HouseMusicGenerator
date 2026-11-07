@@ -11,3 +11,6 @@ ACE-Step-1.5/
 .vercel
 .env*
 !.env.example
+
+# Secrets file uploaded to the private Kaggle dataset; never commit
+housegen.env

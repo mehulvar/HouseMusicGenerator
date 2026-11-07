@@ -60,3 +60,15 @@ def test_llm_retries_once_when_the_answer_is_cut_off(monkeypatch):
     answers = iter([bad, good])
     monkeypatch.setattr(llm, "_post", lambda body: next(answers))
     assert llm.ask_json("s", "p") == {"ok": True}
+
+
+def test_parse_env_file_handles_comments_quotes_and_export():
+    text = '# comment\nHOUSEGEN_API_URL="https://x.app"\nexport GROQ_API_KEY=abc\n\nBROKEN LINE\nEMPTY=\n'
+    assert kaggle_studio.parse_env_file(text) == {"HOUSEGEN_API_URL": "https://x.app", "GROQ_API_KEY": "abc", "EMPTY": ""}
+
+
+def test_dataset_secrets_reads_env_files_anywhere_under_input(tmp_path):
+    (tmp_path / "housegen-secrets").mkdir()
+    (tmp_path / "housegen-secrets" / "housegen.env").write_text("HOUSEGEN_WORKER_TOKEN=t1\n")
+    assert kaggle_studio.dataset_secrets(tmp_path) == {"HOUSEGEN_WORKER_TOKEN": "t1"}
+    assert kaggle_studio.dataset_secrets(tmp_path / "missing") == {}

@@ -15,3 +15,4 @@ skills-lock.json
 tests/
 pytest.ini
 requirements-dev.txt
+housegen.env

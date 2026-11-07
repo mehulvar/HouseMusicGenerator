@@ -22,6 +22,7 @@ ACE_BOOT_TIMEOUT_S = 25 * 60  # first boot downloads the models
 ACE_LOG = Path("/tmp/acestep.log")
 SAVED_LOG = Path("/kaggle/working/acestep.log")  # shows under the notebook's Output tab
 LOG_TAIL_LINES = 80
+DATASET_INPUT = Path("/kaggle/input")  # where Kaggle mounts attached datasets
 IDLE_GRACE_S = 90  # keep checking for new songs this long after the queue empties, before shutting down
 IDLE_POLL_S = 10
 
@@ -85,21 +86,52 @@ def run_step(name: str, cmd: list[str], timeout_s: int, cwd: Path | None = None)
     say(f"{name} done in {elapsed:.0f}s")
 
 
+def parse_env_file(text: str) -> dict[str, str]:
+    """KEY=VALUE lines (comments, blanks and surrounding quotes ignored)."""
+    values = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip().removeprefix("export ").strip()] = value.strip().strip("'\"")
+    return values
+
+
+def dataset_secrets(input_dir: Path = DATASET_INPUT) -> dict[str, str]:
+    """Secrets from a private dataset attached to the run: any *.env file under /kaggle/input.
+
+    Runs the site starts through Kaggle's API don't get the notebook's ticked secrets, but they do get
+    the datasets the push attaches (KAGGLE_SECRETS_DATASET on Vercel).
+    """
+    values: dict[str, str] = {}
+    for path in sorted(input_dir.rglob("*.env")) if input_dir.exists() else []:
+        values = {**values, **parse_env_file(path.read_text(errors="replace"))}
+    return values
+
+
 def load_secrets() -> None:
     from kaggle_secrets import UserSecretsClient  # only exists on Kaggle
 
     client = UserSecretsClient()
+    from_dataset = dataset_secrets()
 
     def load(name: str) -> bool:
         try:
             os.environ[name] = client.get_secret(name)
             return True
         except Exception:  # Kaggle raises a generic error for a missing or unticked secret
+            if from_dataset.get(name):
+                os.environ[name] = from_dataset[name]
+                return True
             return False
 
     missing = [name for name in REQUIRED_SECRETS if not load(name)]
     if missing:
-        raise RuntimeError(f"Add these Kaggle secrets (Add-ons -> Secrets) and tick them for this notebook: {missing}")
+        raise RuntimeError(f"Missing {missing}: add them to the private secrets dataset (see README), "
+                           "or tick them under Add-ons -> Secrets for manual runs")
+    if from_dataset:
+        say("secrets: using the attached secrets dataset where notebook secrets aren't available")
     loaded = [name for name in OPTIONAL_SECRETS if load(name)]
     say(f"secrets ok; optional loaded: {loaded or 'none'}")
     if "GROQ_API_KEY" not in loaded:
