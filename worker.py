@@ -2,7 +2,8 @@
 """Mac-side worker for the deployed site: claims queued songs from the Vercel API, generates them
 locally (ACE-Step + your API keys), and uploads the results.
 
-  python worker.py                     # run forever (launchd keeps this alive, see scripts/)
+  python worker.py                     # run forever (Start Studio.command)
+  python worker.py --drain             # make every queued song, then exit (the Kaggle notebook uses drain())
   python worker.py --publish-existing  # one-off: upload songs already in output/ to the site
 
 Needs HOUSEGEN_API_URL and HOUSEGEN_WORKER_TOKEN in .env.
@@ -10,6 +11,7 @@ Needs HOUSEGEN_API_URL and HOUSEGEN_WORKER_TOKEN in .env.
 import argparse
 import json
 import os
+import threading
 import time
 import traceback
 from datetime import datetime, timezone
@@ -26,6 +28,8 @@ from housegen import audio_acestep  # noqa: E402
 API = os.environ.get("HOUSEGEN_API_URL", "").rstrip("/")
 HEADERS = {"Authorization": f"Bearer {os.environ.get('HOUSEGEN_WORKER_TOKEN', '')}"}
 PUBLISHED = "output/.published.json"  # local JSON paths already uploaded
+HEARTBEAT_EVERY_S = 30  # well inside the site's 90s "worker online" window
+IDLE_POLL_S = 5
 
 
 def log(msg: str):
@@ -73,18 +77,53 @@ def run_job(job: dict):
         post(f"/worker/jobs/{jid}", json={"status": "failed", "error": f"{type(e).__name__}: {e}"})
 
 
+def claim_next() -> dict | None:
+    r = post("/worker/claim", json={"acestep": audio_acestep.available()})
+    return r.json() if r.status_code == 200 else None
+
+
+def drain() -> int:
+    """Make queued songs until the queue is empty; returns how many were made."""
+    made = 0
+    while job := claim_next():
+        run_job(job)
+        made += 1
+    return made
+
+
+class Heartbeat:
+    """Checks in with the site in the background, so it knows a studio is busy (or booting) even
+    during a long render; the cloud scheduler only starts a GPU when no studio is checking in."""
+
+    def __init__(self):
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        while not self._stop.is_set():
+            try:
+                post("/worker/heartbeat", json={"acestep": audio_acestep.available()})
+            except requests.RequestException as e:
+                log(f"heartbeat failed: {e}")
+            self._stop.wait(HEARTBEAT_EVERY_S)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+
+
 def loop():
     log(f"worker up, polling {API}")
-    while True:
-        try:
-            up = audio_acestep.available()
-            r = post("/worker/claim", json={"acestep": up})
-            if r.status_code == 200:
-                run_job(r.json())
-                continue  # check for the next one straight away
-        except requests.RequestException as e:
-            log(f"api unreachable: {e}")
-        time.sleep(5)
+    with Heartbeat():
+        while True:
+            try:
+                drain()
+            except requests.RequestException as e:
+                log(f"api unreachable: {e}")
+            time.sleep(IDLE_POLL_S)
 
 
 def _published() -> set:
@@ -121,7 +160,14 @@ def publish_existing():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--publish-existing", action="store_true")
+    ap.add_argument("--drain", action="store_true", help="make every queued song, then exit")
     a = ap.parse_args()
     if not API or not os.environ.get("HOUSEGEN_WORKER_TOKEN"):
         raise SystemExit("Set HOUSEGEN_API_URL and HOUSEGEN_WORKER_TOKEN in .env")
-    publish_existing() if a.publish_existing else loop()
+    if a.publish_existing:
+        publish_existing()
+    elif a.drain:
+        with Heartbeat():
+            log(f"made {drain()} song(s)")
+    else:
+        loop()

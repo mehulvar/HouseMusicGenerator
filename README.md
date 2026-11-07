@@ -43,6 +43,24 @@ Env: Vercel has `KV_REST_API_URL`/`KV_REST_API_TOKEN` (Upstash), `BLOB_READ_WRIT
 (same value as `WORKER_TOKEN`). Deploy with `vercel deploy --prod`. To upload songs you made locally
 with `gen.py`: `.venv/bin/python worker.py --publish-existing`.
 
+### Cloud studio on Kaggle (free GPU, no Mac needed)
+
+`kaggle_worker.ipynb` runs the same worker on Kaggle's free GPU (about 30 GPU hours a week, no card).
+It clones this repo and the same ACE-Step commit (turbo model, 1.7B LM, thinking on), boots ACE-Step,
+makes every queued song with `worker.drain()` and stops. It checks in with the site while running, so
+the site shows a studio online.
+
+One-time setup:
+1. Make a Kaggle account and verify your phone number (Settings), which unlocks GPUs and internet.
+2. Create a notebook → File → Import Notebook → upload `kaggle_worker.ipynb`.
+3. Right panel: **Accelerator: GPU T4 x2** (not P100) and **Internet: On**.
+4. Add-ons → Secrets: `HOUSEGEN_API_URL`, `HOUSEGEN_WORKER_TOKEN` and `GROQ_API_KEY` (values from `.env`;
+   optional: `GROQ_MODEL`, `SPOTIPY_CLIENT_ID`, `SPOTIPY_CLIENT_SECRET`, `ELEVENLABS_API_KEY`). Tick each one.
+
+When songs are waiting and the Mac is off: **Save Version → Save & Run All**. It runs in the background;
+the tab can be closed. Kaggle doesn't keep files between runs, so each run reinstalls ACE-Step and
+re-downloads the models (~10 GB) before the first song.
+
 ## Web UI + HTTP API (local)
 
 ```bash
