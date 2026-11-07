@@ -81,13 +81,17 @@ def settings() -> dict:
     return out
 
 
+FAILURE_REASON_MAX_CHARS = 1200
+
+
 def failure_reason(item: dict) -> str:
     """The server's error for a failed task: its error field or last log line, else the raw result."""
     try:
         detail = (json.loads(item.get("result") or "[]") or [{}])[0].get("error")
     except (ValueError, AttributeError, IndexError):
         detail = None
-    return detail or item.get("progress_text") or str(item.get("result"))
+    reason = detail or item.get("progress_text") or str(item.get("result"))
+    return reason[-FAILURE_REASON_MAX_CHARS:]  # tracebacks end with the actual error
 
 
 def render(spec: dict, lyrics: dict, out_path: str, timeout_s: int = 1800, **overrides) -> str:
