@@ -46,8 +46,10 @@ with `gen.py`: `.venv/bin/python worker.py --publish-existing`.
 ### Cloud studio on Kaggle (free GPU, no Mac needed)
 
 `kaggle_worker.ipynb` runs the same worker on Kaggle's free GPU (about 30 GPU hours a week, no card).
-It clones this repo and the same ACE-Step commit (turbo model, 1.7B LM, thinking on), boots ACE-Step,
-makes every queued song with `worker.drain()` and stops. It checks in with the site while running, so
+It's a one-cell launcher: it clones this repo and runs `kaggle_studio.py`, which installs the same
+ACE-Step commit (turbo model, 1.7B LM, thinking on; float32 on the T4, since its float16 fallback
+overflows), boots ACE-Step, makes every queued song with `worker.drain()` and stops. Fixes ship with a
+`git push`; the notebook on Kaggle never needs editing. It checks in with the site while running, so
 the site shows a studio online.
 
 One-time setup:

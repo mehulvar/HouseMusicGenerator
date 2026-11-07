@@ -8,6 +8,7 @@ output/
 !.env.example
 worker.py
 kaggle_worker.ipynb
+kaggle_studio.py
 Start Studio.command
 .agents/
 .claude/
