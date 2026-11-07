@@ -4,6 +4,8 @@ LocalStore: jobs in memory, generation runs in-process, files in output/ (your M
 CloudStore: jobs in Upstash Redis, audio in Vercel Blob; generation is done by worker.py on your Mac,
 which claims queued jobs through the /worker endpoints.
 """
+from __future__ import annotations  # method names like list() shadow builtins in annotations
+
 import glob
 import hashlib
 import json
@@ -20,6 +22,16 @@ import requests
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def render_seconds(job: dict) -> float | None:
+    """How long a finished job took to make, from claim to done."""
+    try:
+        start = datetime.fromisoformat(job["started_at"]).timestamp()
+        end = datetime.fromisoformat(job["finished_at"]).timestamp()
+    except (KeyError, TypeError, ValueError):
+        return None
+    return end - start if end > start else None
 
 
 def new_job(request: dict) -> dict:
@@ -64,7 +76,7 @@ class LocalStore:
     def _work(self, job_id: str, req: dict):
         import gen  # heavy imports only where generation actually runs
 
-        self._update(job_id, status="running")
+        self._update(job_id, status="running", started_at=now())
         try:
             result = gen.run(req["prompt"], req.get("path"), req.get("theme"),
                              on_step=lambda s: self._update(job_id, step=s))
@@ -94,6 +106,11 @@ class LocalStore:
 
         return {"mode": self.mode, "acestep": audio_acestep.available(), "elevenlabs": audio_eleven.available()}
 
+    def song_durations(self) -> list[float]:
+        done = sorted((j for j in self.list() if j["status"] == "done"), key=lambda j: j.get("finished_at", ""),
+                      reverse=True)
+        return [d for d in map(render_seconds, done) if d]
+
 
 class RateLimited(Exception):
     pass
@@ -102,6 +119,7 @@ class RateLimited(Exception):
 class CloudStore:
     mode = "cloud"
     HEARTBEAT_S = 90  # worker counts as online if it checked in this recently
+    DURATIONS_KEPT = 20
     STALE_S = 20 * 60  # a "running" job with no update this long is put back in the queue
 
     def __init__(self):
@@ -155,7 +173,18 @@ class CloudStore:
         raw = self.r.get("worker:heartbeat")
         hb = json.loads(raw) if raw else None
         return {"mode": self.mode, "worker": bool(hb), "acestep": bool(hb and hb.get("acestep")),
-                "queued": self.r.llen("queue")}
+                "queued": self.r.llen("queue"), "starting": bool(not hb and self.r.exists("kaggle:started"))}
+
+    # ---- short-lived flags (studio start lock) ----
+    def acquire(self, key: str, ttl_s: int) -> bool:
+        """Set key only if absent; True if this caller got it."""
+        return bool(self.r.set(key, str(time.time()), nx=True, ex=ttl_s))
+
+    def hold(self, key: str, ttl_s: int):
+        self.r.set(key, str(time.time()), ex=ttl_s)
+
+    def song_durations(self) -> list[float]:
+        return [float(d) for d in self.r.lrange("durations", 0, self.DURATIONS_KEPT - 1) or []]
 
     def claim(self) -> dict | None:
         self._requeue_stale()
@@ -165,7 +194,7 @@ class CloudStore:
         job = self.get(job_id)
         if not job or job["status"] != "queued":
             return None
-        job.update(status="running", step="starting")
+        job.update(status="running", step="starting", started_at=now())
         self._save(job)
         self.r.sadd("running", job_id)
         return job
@@ -192,6 +221,10 @@ class CloudStore:
             job.setdefault("finished_at", now())
             job["step"] = None
             self.r.srem("running", job_id)
+            took = render_seconds(job) if fields["status"] == "done" else None
+            if took:
+                self.r.lpush("durations", round(took))
+                self.r.ltrim("durations", 0, self.DURATIONS_KEPT - 1)
         self._save(job)
         return job
 

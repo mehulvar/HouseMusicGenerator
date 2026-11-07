@@ -14,6 +14,7 @@ Worker endpoints (/worker/*) need `Authorization: Bearer $WORKER_TOKEN`.
 """
 import os
 import secrets
+import time
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -21,6 +22,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from housegen import eta, kaggle_trigger
 from housegen.store import RateLimited, blob_put, get_store
 
 app = FastAPI(title="House Music Generator")
@@ -48,8 +50,10 @@ def _link(job: dict, kind: str, files: dict) -> str:
     return target if str(target).startswith("http") else f"/songs/{job['id']}/{kind}"
 
 
-def _view(job: dict) -> dict:
+def _view(job: dict, etas: dict | None = None) -> dict:
     out = {k: v for k, v in job.items() if k != "result"}
+    if etas and job["id"] in etas:
+        out["eta_s"] = etas[job["id"]]
     r = job.get("result")
     if r:
         files = r.get("files", {})
@@ -57,7 +61,10 @@ def _view(job: dict) -> dict:
             "title": r["lyrics"]["title"],
             "audio_path": r["audio_path"],
             "spec": r["spec"],
-            "lyrics": {k: r["lyrics"].get(k) for k in ("title", "hook", "verse", "inspiration")},
+            "lyrics": {k: r["lyrics"].get(k) for k in ("title", "hook", "verse", "inspiration", "concept", "vocals")}
+            | {"sections": [{k: s.get(k) for k in ("name", "voice", "delivery")}
+                            | {"lines": [line["text"] for line in s.get("lines", [])]}
+                            for s in r["lyrics"].get("sections", []) if "name" in s]},
             "reference": r["reference"],
             "links": {
                 "audio": _link(job, "audio", files),
@@ -84,23 +91,49 @@ def health():
     return {"ok": True, **store.health()}
 
 
+def _etas(jobs: list[dict]) -> dict[str, int]:
+    """Countdown seconds for pressing songs; {} if nothing is pressing."""
+    if not any(j["status"] in ("queued", "running") for j in jobs):
+        return {}
+    h = store.health()
+    boot = eta.boot_wait_s(bool(h.get("worker")), bool(h.get("acestep")))
+    return eta.estimates(jobs, time.time(), eta.typical_song_s(store.song_durations()), boot)
+
+
+def _start_studio_if_needed(jobs: list[dict] | None = None):
+    """Cloud mode: start the Kaggle studio for waiting songs. Never lets a Kaggle hiccup break the API."""
+    if store.mode != "cloud" or (jobs is not None and not any(j["status"] == "queued" for j in jobs)):
+        return
+    try:
+        result = kaggle_trigger.maybe_start(store)
+        if result.startswith(("started", "error")):
+            print(f"[studio] {result}")
+    except Exception as e:  # noqa: BLE001 - the site must keep working whatever Kaggle does
+        print(f"[studio] start check failed: {type(e).__name__}: {e}")
+
+
 @app.post("/songs", status_code=202)
 def create_song(req: SongRequest, request: Request):
     try:
         job = store.create(req.model_dump(), _client_ip(request))
     except RateLimited as e:
         raise HTTPException(429, str(e))
+    _start_studio_if_needed()
     return {"id": job["id"], "status": job["status"], "url": f"/songs/{job['id']}"}
 
 
 @app.get("/songs")
 def list_songs():
-    return [_view(j) for j in store.list()]
+    jobs = store.list()
+    _start_studio_if_needed(jobs)  # heals a missed start while visitors watch a queued disc
+    etas = _etas(jobs)
+    return [_view(j, etas) for j in jobs]
 
 
 @app.get("/songs/{job_id}")
 def get_song(job_id: str):
-    return _view(_get(job_id))
+    job = _get(job_id)
+    return _view(job, _etas(store.list()) if job["status"] in ("queued", "running") else None)
 
 
 def _file(job_id: str, kind: str):

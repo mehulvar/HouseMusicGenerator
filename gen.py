@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from housegen import audio_acestep, audio_eleven, audio_procedural, lyrics, parse, profile, spec, spotify  # noqa: E402
+from housegen.spec import scrub  # noqa: E402
 
 
 def slug(s: str) -> str:
@@ -45,8 +46,11 @@ def run(
     style = spec.build_spec(prof, banned)
 
     step(5, "lyrics")
-    words = lyrics.write_lyrics(style, lyrics.fetch_inspiration(theme, style))
-    print(f"   \"{words['title']}\" / hook: {words['hook'][0]}")
+    brief = scrub(prof.get("lyric_brief") or None, banned)
+    words = lyrics.write_lyrics(style, lyrics.fetch_inspiration(theme, brief), brief)
+    style = {**style, "vocals": words["vocals"]}
+    sung = sum(len(s["lines"]) for s in words["sections"])
+    print(f"   \"{words['title']}\" / {sung} lines / voices: {words['vocals']['style']}")
 
     if not path:
         path = "C" if audio_acestep.available() else "A" if audio_eleven.available() else "B"

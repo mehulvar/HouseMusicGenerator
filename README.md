@@ -12,7 +12,7 @@
 | 2. Resolve on Spotify (client credentials) | `housegen/spotify.py` | skipped |
 | 3. Style profile ([ReccoBeats](https://reccobeats.com) audio features + LLM description) | `housegen/profile.py` | house defaults: 122–126 BPM, A minor |
 | 4. Style spec JSON (never contains the artist name) | `housegen/spec.py` | — |
-| 5. Lyrics from `--theme`, else a theme invented from the reference's mood | `housegen/lyrics.py` | public-domain poem line + built-in lyrics |
+| 5. Topline: voices cast for the beat (`housegen/vocals.py`) and full lyrics for every section, written from a brief of how the reference's lyrics work (never its words), then an editor pass (`housegen/lyric_review.py`) | `housegen/lyrics.py` | built-in multi-section lyrics + a beat-matched male/female cast |
 | 6C. Local ACE-Step 1.5 server (free, vocals) | `housegen/audio_acestep.py` | path A |
 | 6A. ElevenLabs Music (paid, vocals) | `housegen/audio_eleven.py` | path B |
 | 6B. Procedural MIDI + numpy synth (instrumental) | `housegen/audio_procedural.py` | wav if ffmpeg is missing |
@@ -27,6 +27,8 @@ cp .env.example .env   # fill in whichever keys you have
 
 Outputs go to `output/`: `.mp3` (or `.wav`), `.mid` (path B), and `.json` (reference, profile, spec, lyrics).
 mp3 encoding needs a working `ffmpeg` (`brew install ffmpeg`).
+
+Tests: `.venv/bin/pip install -r requirements-dev.txt && .venv/bin/python -m pytest`.
 
 ## Deployed on Vercel (queue + Mac studio)
 
@@ -59,9 +61,18 @@ One-time setup:
 4. Add-ons → Secrets: `HOUSEGEN_API_URL`, `HOUSEGEN_WORKER_TOKEN` and `GROQ_API_KEY` (values from `.env`;
    optional: `GROQ_MODEL`, `SPOTIPY_CLIENT_ID`, `SPOTIPY_CLIENT_SECRET`, `ELEVENLABS_API_KEY`). Tick each one.
 
-When songs are waiting and the Mac is off: **Save Version → Save & Run All**. It runs in the background;
-the tab can be closed. Kaggle doesn't keep files between runs, so each run reinstalls ACE-Step and
-re-downloads the models (~10 GB) before the first song.
+**Automatic start:** when a song is queued and no studio is checking in, the site pushes this notebook
+through Kaggle's API and runs it (`housegen/kaggle_trigger.py`); the run keeps taking songs until the queue
+has been empty for 90 s. Set these on Vercel (`vercel env add`):
+- `KAGGLE_NOTEBOOK`: `username/notebook-slug`, from the notebook's URL
+- `KAGGLE_API_TOKEN`: Kaggle → Settings → API → Generate New Token
+  (or a legacy key: `KAGGLE_USERNAME` + `KAGGLE_KEY` from `kaggle.json`)
+
+To start one by hand: **Save Version → Save & Run All**. Kaggle doesn't keep files between runs, so each run
+reinstalls ACE-Step and re-downloads the models (~10 GB) before the first song.
+
+While a disc is pressing the site shows a countdown (`housegen/eta.py`): studio boot time if none is up,
+plus the median of recent render times for the song in progress and each song ahead in the queue.
 
 ## Web UI + HTTP API (local)
 

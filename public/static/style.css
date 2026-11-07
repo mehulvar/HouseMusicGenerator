@@ -141,3 +141,11 @@ pre.spec { background: #121210; border: 1px solid var(--line); padding: 14px; ma
 @media (prefers-reduced-motion: reduce) {
   .grain, .disc svg, .detail, .detail-disc { animation: none !important; }
 }
+
+/* countdown on a pressing disc: sits on the (non-spinning) disc wrapper, over the artwork */
+.eta {
+  position: absolute; left: 50%; bottom: 17%; transform: translateX(-50%); z-index: 2; pointer-events: none;
+  background: rgba(11, 11, 10, .84); color: var(--ink); border: 1px solid var(--line); border-radius: 999px;
+  padding: 6px 11px; white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 11px;
+}
+.spin .eta { font-size: 14px; padding: 8px 14px; }

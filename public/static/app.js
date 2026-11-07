@@ -4,6 +4,8 @@ const shelf = $("#shelf");
 const audio = $("#audio");
 let songs = [];
 let openId = null;
+const deadlines = new Map(); // song id -> ms timestamp the server expects it done
+const ETA_JITTER_MS = 20000; // ignore small re-estimates so the countdown doesn't jump around
 
 const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -107,9 +109,9 @@ function renderShelf() {
   shelf.innerHTML = songs.map((s) => {
     const ref = refLine(s);
     const sub = s.status === "done" ? (ref ? `after “${esc(ref.track)}”` : esc(s.result.spec.subgenre))
-      : s.status === "failed" ? "failed — click for details" : esc(s.step || s.status) + "…";
+      : s.status === "failed" ? "failed — click for details" : s.status === "queued" ? "in the queue…" : esc(s.step || s.status) + "…";
     return `<button class="item" data-id="${s.id}" style="--tilt:${(hash(s.id) % 40) - 20}deg">
-      <div class="disc ${s.status === "done" ? "" : s.status === "failed" ? "failed" : "pressing"}">${discSVG(s)}</div>
+      <div class="disc ${s.status === "done" ? "" : s.status === "failed" ? "failed" : "pressing"}">${discSVG(s)}${etaBadge(s)}</div>
       <div class="meta"><div class="cat mono">${catalog(s)} · ${s.result?.audio_path ? "Path " + s.result.audio_path : s.status}</div>
       <div class="t">${esc(s.result?.title || s.request?.prompt || "Untitled")}</div>
       <div class="s mono">${sub}</div></div>
@@ -148,11 +150,37 @@ shelf.addEventListener("keydown", (e) => {
 // ---------- detail ----------
 const fmt = (t) => (isFinite(t) ? `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}` : "0:00");
 
+// ---------- countdown ----------
+const pressing = (s) => s.status === "queued" || s.status === "running";
+
+function syncDeadlines() {
+  const now = Date.now();
+  for (const s of songs) {
+    if (!pressing(s) || s.eta_s == null) { deadlines.delete(s.id); continue; }
+    const next = now + s.eta_s * 1000;
+    const prev = deadlines.get(s.id);
+    if (prev == null || Math.abs(prev - next) > ETA_JITTER_MS) deadlines.set(s.id, next);
+  }
+}
+
+function etaLabel(id) {
+  const dl = deadlines.get(id);
+  if (dl == null) return "Estimating…";
+  const left = (dl - Date.now()) / 1000;
+  return left <= 0 ? "Any moment now" : `≈ ${fmt(left)} left`;
+}
+
+const etaBadge = (s) => (pressing(s) ? `<span class="eta mono" data-eta="${s.id}">${etaLabel(s.id)}</span>` : "");
+
+setInterval(() => {
+  document.querySelectorAll("[data-eta]").forEach((el) => { el.textContent = etaLabel(el.dataset.eta); });
+}, 1000);
+
 function openDetail(id) {
   const s = songs.find((x) => x.id === id);
   if (!s) return;
   openId = id;
-  $("#spin").innerHTML = `<div class="disc ${s.status === "done" ? "" : s.status === "failed" ? "failed" : "pressing"}">${discSVG(s)}</div>`;
+  $("#spin").innerHTML = `<div class="disc ${s.status === "done" ? "" : s.status === "failed" ? "failed" : "pressing"}">${discSVG(s)}${etaBadge(s)}</div>`;
   $("#spin").classList.remove("playing");
   const r = s.result;
   const ref = refLine(s);
@@ -161,7 +189,10 @@ function openDetail(id) {
   if (ref) html += `<div class="ref">After <b>“${esc(ref.track)}”</b>${ref.artist ? " — " + esc(ref.artist) : ""}${ref.year ? ", " + esc(ref.year) : ""}</div>`;
 
   if (s.status === "failed") html += `<p class="err">${esc(s.error)}</p>`;
-  else if (s.status !== "done") html += `<p class="mono">Pressing — ${esc(s.step || s.status)}…</p>`;
+  else if (s.status !== "done") {
+    const where = s.status === "queued" ? "waiting for the studio" : esc(s.step || s.status);
+    html += `<p class="mono">Pressing — ${where}… · <span data-eta="${s.id}">${etaLabel(s.id)}</span></p>`;
+  }
   else {
     const sp = r.spec;
     html += `<div class="player">
@@ -174,11 +205,11 @@ function openDetail(id) {
         <dt>Tempo / Key</dt><dd>${sp.bpm} BPM · ${esc(sp.key)}</dd>
         <dt>Mood</dt><dd>${esc(sp.mood)}</dd>
         <dt>Instruments</dt><dd>${esc((sp.instruments || []).join(", "))}</dd>
-        ${sp.vocals ? `<dt>Vocal</dt><dd>${esc(sp.vocals.style)}</dd>` : ""}
+        ${sp.vocals ? `<dt>Voices</dt><dd>${esc(sp.vocals.style)}</dd>` : ""}
         <dt>Structure</dt><dd>${sp.structure.map((x) => `${esc(x.section)} ${x.bars}`).join(" · ")}</dd>
         ${r.lyrics?.inspiration ? `<dt>Theme</dt><dd>${esc(r.lyrics.inspiration.text)}</dd>` : ""}
       </dl>
-      <div class="lyrics"><em>Hook</em>${esc((r.lyrics.hook || []).join("\n"))}<em>Verse</em>${esc((r.lyrics.verse || []).join("\n"))}</div>
+      <div class="lyrics">${lyricsHTML(r.lyrics)}</div>
       <div class="links mono">
         <a href="${r.links.audio}" download>Download audio</a>
         ${r.links.midi ? `<a href="${r.links.midi}" download>Download MIDI</a>` : ""}
@@ -201,6 +232,21 @@ function openDetail(id) {
     $("#showSpec").onclick = () => { $("#spec").hidden = !$("#spec").hidden; };
     syncPlayer();
   }
+}
+
+const VOICE_LABEL = { lead: "lead", second: "second voice", both: "both voices" };
+
+function lyricsHTML(lyrics) {
+  const sung = (lyrics.sections || []).filter((s) => s.lines?.length);
+  if (!sung.length) {
+    return `<em>Hook</em>${esc((lyrics.hook || []).join("\n"))}<em>Verse</em>${esc((lyrics.verse || []).join("\n"))}`;
+  }
+  const hasSecond = Boolean(lyrics.vocals?.second);
+  return sung.map((s) => {
+    const who = hasSecond ? ` · ${VOICE_LABEL[s.voice] || "lead"}` : "";
+    const how = s.delivery ? ` · ${esc(s.delivery)}` : "";
+    return `<em>${esc(s.name)}${who}${how}</em>${esc(s.lines.join("\n"))}`;
+  }).join("");
 }
 
 function closeDetail() {
@@ -227,6 +273,7 @@ function syncPlayer() {
 // ---------- data ----------
 async function load() {
   songs = await (await fetch("/songs")).json();
+  syncDeadlines();
   renderShelf();
   if (openId) {
     const s = songs.find((x) => x.id === openId);
@@ -253,7 +300,9 @@ async function health() {
     const el = $("#status");
     if (h.mode === "cloud") {
       const q = h.queued ? ` · ${h.queued} queued` : "";
-      el.textContent = h.acestep ? `Studio online${q}` : `Studio offline — new discs wait in the queue${q}`;
+      el.textContent = h.acestep ? `Studio online${q}`
+        : h.worker || h.starting ? `Studio starting up${q}`
+        : `Studio offline — new discs wait in the queue${q}`;
     } else {
       el.textContent = h.acestep ? "ACE-Step online — vocals" : "ACE-Step offline — instrumental only";
     }

@@ -50,9 +50,13 @@ def _llm_describe(artist: str, track: str, meta: dict | None) -> dict | None:
         f"Describe the production style of {ref}.\n"
         'Return {"bpm": int, "key": "e.g. F minor", "subgenre": str, "drum_feel": str, '
         '"instruments": [str], "mood": str, "energy": float 0-1, '
-        '"vocal_style": "e.g. warm soulful female lead vocal"}. '
+        '"vocal_style": "e.g. warm soulful female lead vocal", '
+        '"lyric_brief": {"theme": str, "story": str, "perspective": str, "imagery": str, '
+        '"hook_device": str, "cadence": str}}. '
+        "The lyric_brief describes HOW the song's lyrics work (subject, narrative arc, point of view, kind of "
+        "imagery, how the hook is built, rhythmic phrasing) in your own words: never quote its lyrics. "
         "Never mention any artist or song names in the values.",
-        max_tokens=500,
+        max_tokens=900,
     )
 
 

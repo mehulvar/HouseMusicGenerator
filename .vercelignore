@@ -7,9 +7,11 @@ output/
 .env.*
 !.env.example
 worker.py
-kaggle_worker.ipynb
 kaggle_studio.py
 Start Studio.command
 .agents/
 .claude/
 skills-lock.json
+tests/
+pytest.ini
+requirements-dev.txt

@@ -17,12 +17,10 @@ def _section_ms(bars: int, bpm: int) -> int:
 
 
 def composition_plan(spec: dict, lyrics: dict) -> dict:
-    vocal = {s["section"]: s for s in lyrics["sections"]}
+    sung = lyrics["sections"]  # one per structure section, in order
     sections = []
     for i, s in enumerate(spec["structure"]):
-        lines = []
-        if s["section"] in vocal:
-            lines = lyrics["hook"] if s["section"] == "drop" else lyrics["verse"]
+        lines = [line["text"] for line in sung[i]["lines"]] if i < len(sung) else []
         local = {
             "intro": ["sparse drums", "filtered pads"],
             "build": ["rising snare roll", "filter sweep up"],

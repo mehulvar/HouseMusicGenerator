@@ -22,6 +22,8 @@ ACE_BOOT_TIMEOUT_S = 25 * 60  # first boot downloads the models
 ACE_LOG = Path("/tmp/acestep.log")
 SAVED_LOG = Path("/kaggle/working/acestep.log")  # shows under the notebook's Output tab
 LOG_TAIL_LINES = 80
+IDLE_GRACE_S = 90  # keep checking for new songs this long after the queue empties, before shutting down
+IDLE_POLL_S = 10
 
 REQUIRED_SECRETS = ("HOUSEGEN_API_URL", "HOUSEGEN_WORKER_TOKEN")
 OPTIONAL_SECRETS = ("GROQ_API_KEY", "GROQ_MODEL", "SPOTIPY_CLIENT_ID", "SPOTIPY_CLIENT_SECRET", "ELEVENLABS_API_KEY")
@@ -124,7 +126,13 @@ def patch_dtypes(ace_dir: Path) -> None:
     say("patched ACE-Step: float32 on pre-Ampere GPUs")
 
 
-def install() -> None:
+def install_requirements() -> None:
+    """This repo's own packages: needed before worker.py can be imported (and so check in)."""
+    run_step("install housegen requirements",
+             [sys.executable, "-m", "pip", "install", "-q", "-r", str(REPO_DIR / "requirements.txt")], 10 * MINUTE)
+
+
+def install_acestep() -> None:
     shutil.rmtree(ACE_DIR, ignore_errors=True)
     run_step("clone ACE-Step", ["git", "clone", "--quiet", ACE_REPO, str(ACE_DIR)], 10 * MINUTE)
     run_step("check out pinned commit", ["git", "-C", str(ACE_DIR), "checkout", "--quiet", ACE_COMMIT], MINUTE)
@@ -132,8 +140,6 @@ def install() -> None:
     run_step("install uv", [sys.executable, "-m", "pip", "install", "-q", "uv"], 5 * MINUTE)
     run_step("install ACE-Step (uv sync)",
              [sys.executable, "-m", "uv", "sync", "--frozen", "--no-dev", "--python", "3.11"], 25 * MINUTE, cwd=ACE_DIR)
-    run_step("install housegen requirements",
-             [sys.executable, "-m", "pip", "install", "-q", "-r", str(REPO_DIR / "requirements.txt")], 10 * MINUTE)
     if shutil.which("ffmpeg") is None:
         run_step("apt-get update", ["apt-get", "update", "-qq"], 5 * MINUTE)
         run_step("install ffmpeg", ["apt-get", "install", "-y", "-qq", "ffmpeg"], 10 * MINUTE)
@@ -157,13 +163,24 @@ def wait_for_acestep(server: subprocess.Popen, is_up) -> None:
     say("ACE-Step is up")
 
 
-def make_songs() -> None:
-    os.environ.update(ACE_SETTINGS)  # before importing worker/housegen, which read them
-    sys.path.insert(0, str(REPO_DIR))
-    import worker
+def drain_until_idle(worker) -> "worker.DrainResult":
+    """Make songs until none have arrived for IDLE_GRACE_S, so a song queued just as we finish isn't stranded."""
+    made = failed = 0
+    idle_since = time.time()
+    while time.time() - idle_since < IDLE_GRACE_S:
+        result = worker.drain()
+        if result.made or result.failed:
+            made, failed = made + result.made, failed + result.failed
+            idle_since = time.time()
+        else:
+            time.sleep(IDLE_POLL_S)
+    return worker.DrainResult(made, failed)
+
+
+def make_songs(worker) -> None:
     from housegen import audio_acestep
 
-    with worker.Heartbeat(), ACE_LOG.open("w") as ace_log:  # site shows a studio online while this runs
+    with ACE_LOG.open("w") as ace_log:
         say("starting ACE-Step (first boot downloads the models)")
         server = subprocess.Popen(
             [str(ACE_DIR / ".venv/bin/acestep-api"), "--host", "127.0.0.1", "--port", str(ACE_PORT)],
@@ -171,7 +188,7 @@ def make_songs() -> None:
         )
         try:
             wait_for_acestep(server, audio_acestep.available)
-            result = worker.drain()
+            result = drain_until_idle(worker)
             say(f"made {result.made} song(s), {result.failed} failed")
         finally:
             server.terminate()
@@ -187,8 +204,15 @@ def make_songs() -> None:
 def main() -> None:
     load_secrets()
     check_gpu()
-    install()
-    make_songs()
+    install_requirements()
+    os.environ.update(ACE_SETTINGS)  # before importing worker/housegen, which read them
+    sys.path.insert(0, str(REPO_DIR))
+    import worker
+
+    # Check in from the first minute, so the site shows the studio booting and won't start a second run.
+    with worker.Heartbeat():
+        install_acestep()
+        make_songs(worker)
 
 
 if __name__ == "__main__":

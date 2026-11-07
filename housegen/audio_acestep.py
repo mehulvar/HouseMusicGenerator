@@ -6,8 +6,8 @@ import time
 import requests
 
 from .spec import parse_key
+from .vocals import section_tag
 
-TAGS = {"intro": "intro", "build": "verse", "drop": "chorus", "break": "bridge", "outro": "outro"}
 
 
 def _base() -> str:
@@ -26,17 +26,16 @@ def available() -> bool:
         return False
 
 
-def tagged_lyrics(spec: dict, lyrics: dict) -> str:
-    """ACE-Step wants section-tagged lyrics; instrumental sections get a bare tag."""
+def tagged_lyrics(lyrics: dict) -> str:
+    """ACE-Step section tags carry who sings and how, e.g. [Verse 1 - male vocal, deep, intimate]."""
     blocks = []
-    for s in spec["structure"]:
-        tag = TAGS.get(s["section"], s["section"])
-        lines = []
-        if s["section"] == "drop":
-            lines = lyrics["hook"] * 2
-        elif s["section"] in ("build", "break"):
-            lines = lyrics["verse"]
-        blocks.append("\n".join([f"[{tag}]", *lines]))
+    for s in lyrics["sections"]:
+        if not s["lines"]:
+            blocks.append(f"[{s['name']} - instrumental]")
+            continue
+        details = [section_tag(lyrics["vocals"], s["voice"]), s.get("delivery")]
+        tag = f"[{s['name']} - {', '.join(d for d in details if d)}]"
+        blocks.append("\n".join([tag, *(line["text"] for line in s["lines"])]))
     return "\n\n".join(blocks)
 
 
@@ -51,7 +50,7 @@ def caption(spec: dict, clarity: bool = True) -> str:
     # instruments make the lead sound processed/robotic; the vocal is described separately below.
     blocked = ("reverb", "atmospher", "ethereal", "vocal", "voice")
     instruments = [i for i in spec["instruments"] if not any(w in i.lower() for w in blocked)]
-    vocal = spec.get("vocals", {}).get("style", "warm soulful female lead vocal")
+    vocal = spec.get("vocals", {}).get("style", "soulful lead vocal")
     vocal = vocal[:1].upper() + vocal[1:]
     return (
         f"{spec['subgenre']}, classic house groove at {spec['bpm']} BPM, punchy four-on-the-floor kick, "
@@ -99,7 +98,7 @@ def render(spec: dict, lyrics: dict, out_path: str, timeout_s: int = 1800, **ove
     root, mode = parse_key(spec["key"])
     body = {
         "prompt": caption(spec),
-        "lyrics": tagged_lyrics(spec, lyrics),
+        "lyrics": tagged_lyrics(lyrics),
         "vocal_language": "en",
         "audio_duration": duration_s(spec),
         "bpm": spec["bpm"],
