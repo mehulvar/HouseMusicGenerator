@@ -15,6 +15,7 @@ import threading
 import time
 import traceback
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 import requests
 from dotenv import load_dotenv
@@ -56,7 +57,8 @@ def cloud_result(result: dict, job_id: str) -> dict:
     return {**result, "files": files}
 
 
-def run_job(job: dict):
+def run_job(job: dict) -> bool:
+    """Make one queued song; True if it was made and uploaded."""
     jid, req = job["id"], job["request"]
     log(f"job {jid}: {req['prompt']!r}")
 
@@ -72,9 +74,11 @@ def run_job(job: dict):
         post(f"/worker/jobs/{jid}", json={"status": "done", "result": cloud_result(result, jid)})
         mark_published(result["files"]["json"])  # it's on the site already; --publish-existing must skip it
         log(f"job {jid}: done — {result['lyrics']['title']}")
+        return True
     except Exception as e:
         traceback.print_exc()
         post(f"/worker/jobs/{jid}", json={"status": "failed", "error": f"{type(e).__name__}: {e}"})
+        return False
 
 
 def claim_next() -> dict | None:
@@ -82,13 +86,20 @@ def claim_next() -> dict | None:
     return r.json() if r.status_code == 200 else None
 
 
-def drain() -> int:
-    """Make queued songs until the queue is empty; returns how many were made."""
-    made = 0
+class DrainResult(NamedTuple):
+    made: int
+    failed: int
+
+
+def drain() -> DrainResult:
+    """Make queued songs until the queue is empty."""
+    made = failed = 0
     while job := claim_next():
-        run_job(job)
-        made += 1
-    return made
+        if run_job(job):
+            made += 1
+        else:
+            failed += 1
+    return DrainResult(made, failed)
 
 
 class Heartbeat:
@@ -168,6 +179,7 @@ if __name__ == "__main__":
         publish_existing()
     elif a.drain:
         with Heartbeat():
-            log(f"made {drain()} song(s)")
+            result = drain()
+            log(f"made {result.made} song(s), {result.failed} failed")
     else:
         loop()

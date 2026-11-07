@@ -81,6 +81,15 @@ def settings() -> dict:
     return out
 
 
+def failure_reason(item: dict) -> str:
+    """The server's error for a failed task: its error field or last log line, else the raw result."""
+    try:
+        detail = (json.loads(item.get("result") or "[]") or [{}])[0].get("error")
+    except (ValueError, AttributeError, IndexError):
+        detail = None
+    return detail or item.get("progress_text") or str(item.get("result"))
+
+
 def render(spec: dict, lyrics: dict, out_path: str, timeout_s: int = 1800, **overrides) -> str:
     """overrides are merged into the request body last (e.g. seed, thinking, prompt) for A/B tests."""
     root, mode = parse_key(spec["key"])
@@ -110,7 +119,7 @@ def render(spec: dict, lyrics: dict, out_path: str, timeout_s: int = 1800, **ove
         if item["status"] == 1:
             break
         if item["status"] == 2:
-            raise RuntimeError(f"ACE-Step task failed: {item.get('result')}")
+            raise RuntimeError(f"ACE-Step task failed: {failure_reason(item)}")
         time.sleep(3)
     else:
         raise TimeoutError(f"ACE-Step task {task_id} did not finish in {timeout_s}s")
